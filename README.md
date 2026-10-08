@@ -15,233 +15,133 @@
 <!-- Row 5: Custom Metrics -->
 [![Custom Endpoint](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bsubhamay/5c33f0ba73bbfc669ffff84c6999f63e/raw/aws-secure-website-oac-waf.json)](https://gist.github.com/subhamay-bhattacharyya/5c33f0ba73bbfc669ffff84c6999f63e)
 
-This repository contains nested CloudFormation templates for deploying S3 buckets with security best practices and optional policy enforcement.
+This repository deploys a static website ("Foody Woody") to a secure, versioned S3 bucket on AWS using CloudFormation. The root stack in `cloudformation/template.yaml` provisions the bucket through a nested stack. CloudFront with Origin Access Control (OAC), the bucket policy, and AWS WAF are still in progress (see [Roadmap](#roadmap)).
 
-## Overview
+## Repository Layout
 
-This is a **nested stack template** designed to be invoked from a parent/root CloudFormation stack. Templates are stored in this repository and should be uploaded to an S3 bucket for reference by parent stacks.
-
-## Template Files
-
-### CloudFormation Templates
-
-- **`templates/s3-bucket.yaml`** — Nested template for S3 bucket creation (versioning, public access blocking)
-- **`templates/s3-bucket-policy.yaml`** — Optional nested template for S3 bucket policy (encryption enforcement, secure transport)
-
-### Parameter Files
-
-- **`parameters/parameters.json`** — Parameter values for development environment
-
-## Template Features
-
-### S3 Bucket Template (s3-bucket.yaml)
-
-- ✅ Versioning enabled by default
-- ✅ Public Access Blocking
-- ✅ Smart bucket naming (project prefix, account ID, environment, region)
-- ✅ Optional CI suffix support
-
-### S3 Bucket Policy Template (s3-bucket-policy.yaml)
-
-- ✅ Encryption enforcement on uploads
-- ✅ Secure transport enforcement (HTTPS only)
-- ✅ Optional/conditional policy rules
-
-## Parameters
-
-### S3 Bucket Parameters
-
-| Parameter | Type | Default | Description |
-| ----------- | ------ | --------- | ------------- |
-| `ProjectName` | String | — | Project name to use as bucket prefix (required) |
-| `BucketBaseName` | String | `cfn-bucket` | Base name for S3 bucket |
-| `environment` | String | `devl` | Deployment environment (devl, stag, prod) |
-| `CiSuffix` | String | `""` | Optional CI suffix to append to bucket name |
-
-### S3 Bucket Policy Parameters
-
-**Generic (Standalone) Mode:**
-
-| Parameter | Type | Description |
-| ----------- | ------ | ------------- |
-| `BucketName` | String | Direct bucket name (use for any bucket) |
-
-**Integrated Mode (with bucket template):**
-
-| Parameter | Type | Default | Description |
-| ----------- | ------ | --------- | ------------- |
-| `ProjectName` | String | — | Project name (must match bucket template) |
-| `BucketBaseName` | String | `cfn-bucket` | Base name (must match bucket template) |
-| `environment` | String | `devl` | Environment (must match bucket template) |
-| `CiSuffix` | String | `""` | CI suffix (must match bucket template) |
-
-**Usage:** If `BucketName` is provided (non-empty), it takes precedence. Otherwise, the bucket name is constructed from ProjectName/BucketBaseName/environment/CiSuffix.
-
-## Outputs
-
-### S3 Bucket Template Outputs
-
-- `S3BucketName` — S3 bucket name
-- `S3BucketArn` — S3 bucket ARN
-
-### S3 Bucket Policy Template Outputs
-
-- `BucketName` — Bucket name with policy applied
-- `PolicyStatus` — Policy application status (Applied)
-
-## Usage
-
-### 1. Upload Templates to S3
-
-```bash
-aws s3 cp templates/s3-bucket.yaml s3://your-cfn-bucket/templates/s3-bucket.yaml
-aws s3 cp templates/s3-bucket-policy.yaml s3://your-cfn-bucket/templates/s3-bucket-policy.yaml
+```text
+cloudformation/
+├── template.yaml          # Root stack: invokes the nested S3 bucket stack
+├── parameters.json        # Parameter values (devl)
+└── stack-config.json      # Stack name, template, and parameter file used by CI
+website/
+├── index.html             # Single-page site: Home, About, Services, Menu, Contact
+├── web.css                # Styles (light and dark themes)
+└── web.js                 # Mobile menu, active section link, scroll-to-top, theme toggle
+.env/environments.yaml     # Maps ci and devl to the AWS-SCS-C03-SANDBOX environment in us-east-1
+.github/workflows/         # CI, environment setup, branch creation, Claude integration
 ```
 
-### 2. Reference from Parent Stack
+## Root Stack (`cloudformation/template.yaml`)
 
-In your parent/root CloudFormation template:
+The root stack creates a single `AWS::CloudFormation::Stack` resource, `S3BucketNestedStack`. It loads the nested template from:
 
-```yaml
-S3BucketNestedStack:
-  Type: AWS::CloudFormation::Stack
-  Properties:
-    TemplateURL: https://s3.amazonaws.com/your-cfn-bucket/templates/s3-bucket.yaml
-    Parameters:
-      ProjectName: !Ref ProjectName
-      BucketBaseName: cfn-bucket
-      environment: !Ref Environment
-      CiSuffix: !Ref CiSuffix
-    Tags:
-      - Key: Environment
-        Value: !Ref Environment
-
-S3PolicyNestedStack:
-  Type: AWS::CloudFormation::Stack
-  DependsOn: S3BucketNestedStack
-  Properties:
-    TemplateURL: https://s3.amazonaws.com/your-cfn-bucket/templates/s3-bucket-policy.yaml
-    Parameters:
-      BucketName: !GetAtt S3BucketNestedStack.Outputs.S3BucketName
-      ProjectName: ""
-      BucketBaseName: cfn-bucket
-      environment: !Ref Environment
-      CiSuffix: !Ref CiSuffix
-    Tags:
-      - Key: Environment
-        Value: !Ref Environment
-
-Outputs:
-  BucketName:
-    Value: !GetAtt S3BucketNestedStack.Outputs.S3BucketName
-  BucketArn:
-    Value: !GetAtt S3BucketNestedStack.Outputs.S3BucketArn
+```text
+https://<NestedStacksS3BucketName>.s3.us-east-1.amazonaws.com/cfn-nested-aws-s3-bucket/template.yaml
 ```
 
-### 3. Deploy Using AWS CLI
+The nested template is not part of this repository. Its stated purpose, per the root template metadata, is to create a versioned, encrypted S3 bucket with public access blocked and optional logging and website configuration. The root stack always passes `WebsiteConfiguration: "true"`.
 
-#### Option A: Deploy Bucket Only
+### Parameters
 
-```bash
-# Development (without CI prefix)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-dev \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/dev.json
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `NestedStacksS3BucketName` | `subhamay-cfn-templates-bucket-270453428528-us-east-1` | S3 bucket that holds the nested template |
+| `ProjectName` | `proj-ztc` | Bucket name prefix. Lowercase letters, numbers, and hyphens; max 20 characters |
+| `BucketBaseName` | `foody-woody` | Base name for the bucket. Lowercase letters, numbers, hyphens, and dots; max 20 characters |
+| `Environment` | `devl` | Deployment environment label |
+| `KmsKey` | `SB-KMS` | KMS key for encryption. Accepts a key name, an `alias/` name, or a key ARN. Leave empty for no KMS encryption |
+| `EnableBucketKey` | `false` | `true` or `false`. Enables S3 Bucket Keys to reduce KMS cost; applies only when `KmsKey` is set |
+| `CiSuffix` | `""` | Optional suffix appended to the bucket name, used for CI deployments |
 
-# Staging (without CI prefix)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-stag \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/staging.json
+### Bucket Naming
 
-# Production (without CI prefix)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-prod \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/prod.json
+The nested stack builds the bucket name from the parameters:
+
+```text
+{ProjectName}-{BucketBaseName}-{AccountId}-{Environment}-{Region}[-{CiSuffix}]
 ```
 
-#### Option B: Deploy Bucket + Policy (Recommended)
+Example: `proj-ztc-foody-woody-123456789012-devl-us-east-1`. The exact pattern is set by the nested template, so confirm it against the deployed bucket name.
+
+### Outputs
+
+Outputs are exported with the stack name as a prefix, so other stacks can import them.
+
+| Output | Export name | Value |
+|--------|-------------|-------|
+| `NestedStackId` | `<stack-name>-NestedStackId` | ID of the nested stack |
+| `S3BucketName` | `<stack-name>-BucketName` | Name of the S3 bucket |
+| `S3BucketArn` | `<stack-name>-BucketArn` | ARN of the S3 bucket |
+| `NestedStackOutputs` | — | Bucket name and ARN as a text block |
+
+## Website (`website/`)
+
+The site is a static, single-page "Foody Woody" restaurant landing page with these features:
+
+- Sections for Home, About, Services, Menu of the week, and Contact
+- Responsive navigation with a mobile menu toggle
+- Active navigation link that tracks the section in view
+- Scroll-to-top button
+- Light and dark theme toggle, saved in `localStorage`
+
+The template does not yet upload the `website/` files to the bucket or serve them through CloudFront.
+
+## Deploying
+
+The root stack has no IAM resources, so no `--capabilities` flag is needed. Deploy with the default parameters, or override any of them:
 
 ```bash
-# Deploy bucket first
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-dev \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/dev.json
+aws cloudformation deploy \
+  --template-file cloudformation/template.yaml \
+  --stack-name aws-secure-website-oac-waf-stack \
+  --region us-east-1 \
+  --parameter-overrides \
+    ProjectName=proj-ztc \
+    BucketBaseName=foody-woody \
+    Environment=devl \
+    KmsKey=SB-KMS \
+    EnableBucketKey=false \
+    CiSuffix=""
+```
 
-# Wait for bucket to be created
-aws cloudformation wait stack-create-complete --stack-name cfn-s3-bucket-dev
+Read the bucket name from the stack outputs after the deploy finishes:
 
-# Get the bucket name from stack outputs
-BUCKET_NAME=$(aws cloudformation describe-stacks \
-  --stack-name cfn-s3-bucket-dev \
+```bash
+aws cloudformation describe-stacks \
+  --stack-name aws-secure-website-oac-waf-stack \
   --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
-  --output text)
-
-#### Using Integrated Mode (with bucket template parameters)
-
-```bash
-aws cloudformation create-stack \
-  --stack-name cfn-s3-policy-dev \
-  --template-body file://templates/s3-bucket-policy.yaml \
-  --parameters file://parameters/policy-dev.json
+  --output text
 ```
 
-#### Using Generic Mode (standalone with direct bucket name)
+## CI/CD Workflows
 
-```bash
-aws cloudformation create-stack \
-  --stack-name cfn-s3-policy-dev \
-  --template-body file://templates/s3-bucket-policy.yaml \
-  --parameters \
-    ParameterKey=BucketName,ParameterValue=my-existing-bucket \
-    ParameterKey=ProjectName,ParameterValue=""
-```
+- **`ci.yaml`** runs only when started manually (`workflow_dispatch`). It reads `cloudformation/stack-config.json`, then calls a reusable workflow in the `ci` environment to deploy the stack. On `main`, it also generates the changelog and creates a GitHub release. The push and pull request triggers are commented out.
+- **`setup-environments.yaml`** runs manually to set up the AWS environments.
+- **`create-branch.yaml`** creates a `CFN-` prefixed feature branch when an issue is assigned.
+- **`claude.yaml`** and **`claude-code-review.yaml`** respond to `@claude` mentions and review pull requests.
 
-#### Option C: Deploy with CI Suffix
+## Roadmap
 
-```bash
-# Development with CI suffix (e.g., for GitLab CI)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-dev-ci \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters \
-    ParameterKey=ProjectName,ParameterValue=myproject \
-    ParameterKey=BucketBaseName,ParameterValue=cfn-bucket \
-    ParameterKey=environment,ParameterValue=devl \
-    ParameterKey=CiSuffix,ParameterValue=$CI_PIPELINE_ID
-```
+Completed:
 
-## Bucket Naming Convention
+- [x] AWS S3
 
-The templates generate bucket names using the following pattern:
+Pending:
 
-**Without CI Suffix:**
-
-```bash
-{ProjectName}-{BucketBaseName}-{AccountId}-{Environment}-{Region}
-```
-
-Example: `myproject-cfn-bucket-123456789012-devl-us-east-1`
-
-**With CI Suffix:**
-
-```bash
-{ProjectName}-{BucketBaseName}-{AccountId}-{Environment}-{Region}-{CiSuffix}
-```
-
-Example: `myproject-cfn-bucket-123456789012-devl-us-east-1-pipeline-12345`
+- [ ] AWS CloudFront (with Origin Access Control)
+- [ ] AWS Bucket Policy
+- [ ] AWS WAF
+- [ ] AWS CloudWatch
+- [ ] AWS CloudTrail
 
 ## Best Practices Implemented
 
-- ✅ Versioning enabled by default
-- ✅ Public access blocked by default
-- ✅ Smart bucket naming with project prefix, account ID, environment, and region
-- ✅ Optional CI suffix support for unique deployments
-- ✅ Optional policy enforcement (encryption and secure transport)
-- ✅ Export values for cross-stack references
+- Versioning enabled on the bucket (per the nested template's stated purpose)
+- Public access blocked on the bucket (per the nested template's stated purpose)
+- KMS encryption with an optional S3 Bucket Key
+- Bucket names scoped by project, account, environment, and region
+- Outputs exported for cross-stack references
 
 ## License
 
