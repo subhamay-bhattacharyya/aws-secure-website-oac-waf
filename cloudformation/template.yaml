@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >-
   Root CloudFormation for Secure Web Hosting on AWS: S3 & CloudFront. Creates:
-  - S3BucketNestedStack: S3 website bucket (versioned, public access blocked, optional KMS encryption)
-  - CloudFrontNestedStack: CloudFront distribution with Origin Access Control (OAC) in front of the S3 bucket
+  - S3 website bucket (versioned, public access blocked, optional KMS encryption)
+  - CloudFront distribution with Origin Access Control (OAC) in front of the S3 bucket
 
 Metadata:
   AWS::CloudFormation::Interface:
