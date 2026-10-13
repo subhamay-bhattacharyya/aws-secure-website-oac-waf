@@ -1,6 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: 'Root CloudFormation template that invokes nested stacks for Secure website using OAC / WAF'
+Description: >-
+  Root CloudFormation for Secure Web Hosting on AWS: S3 & CloudFront. Creates:
+  - S3BucketNestedStack: S3 website bucket (versioned, public access blocked, optional KMS encryption)
+  - CloudFrontNestedStack: CloudFront distribution with Origin Access Control (OAC) in front of the S3 bucket
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -120,6 +123,33 @@ Resources:
           Value: RootStack
         - Key: NestedStackPurpose
           Value: S3BucketCreation
+
+  CloudFrontNestedStack:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: "Invokes the nested CloudFront template to create an OAC-secured CloudFront distribution in front of the S3 website bucket"
+        must:
+          - "Nested template must be accessible at the specified S3 location"
+          - "IAM principal must have s3:GetObject permission on the template S3 bucket"
+          - "CloudFormation service must have permission to create CloudFront distributions and update the origin bucket policy"
+    Properties:
+      TemplateURL: !Sub "https://${NestedStacksS3BucketName}.s3.us-east-1.amazonaws.com/cfn-nested-aws-cloudfront-distribution/template.yaml"
+      Parameters:
+        ProjectName: !Ref ProjectName
+        DistributionBaseName: !Sub "${BucketBaseName}-cdn"
+        Environment: !Ref Environment
+        Description: !Sub "CloudFront distribution for ${BucketBaseName} website."
+        OriginBucketName: !GetAtt S3BucketNestedStack.Outputs.S3BucketName
+        OriginBucketRegion: !Ref AWS::Region
+        CiSuffix: !Ref CiSuffix
+      Tags:
+        - Key: ManagedBy
+          Value: RootStack
+        - Key: NestedStackPurpose
+          Value: CloudFrontDistribution
 
 Outputs:
   NestedStackId:
